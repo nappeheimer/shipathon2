@@ -1,0 +1,15 @@
+services:
+  my-awesome-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: my-awesome-agent
+    ports:
+      - "5001:5000"
+    environment:
+      - ALT_API_KEY=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
+
+networks:
+  agents-net:
+    external: true         # joins the already-running Nasiko network
+    name: agents-net
