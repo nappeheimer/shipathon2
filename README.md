@@ -1,153 +1,182 @@
-# A2A Webhook Agent
+# Onboarding Agent — Nasiko AI Agent Buildthon
 
-An A2A agent that forwards messages to webhook endpoints and returns responses in standard A2A format.
+**Problem Statement 3: Adaptive Workflow Orchestration Agent**
+**Domain: Employee Onboarding Automation**
 
-## Overview
+---
 
-This agent acts as a bridge between the A2A protocol and webhook-based services. It receives A2A messages, forwards them to a configured webhook endpoint, and returns the webhook response in standard A2A format.
+## What It Does
 
-## Features
+This agent onboards a new employee from a single natural language instruction. It plans a strict sequence of steps, executes each one using a defined toolset, retries intelligently on failure, escalates gracefully when retries are exhausted, and produces a full structured audit log at the end.
 
-- **Webhook Integration**: Forwards messages to any HTTP webhook endpoint
-- **A2A Protocol Compliance**: Full support for A2A message/send protocol
-- **Configurable Timeouts**: Adjustable webhook call timeouts
-- **Error Handling**: Robust error handling with proper A2A error responses
-- **Multiple Response Formats**: Handles JSON and text webhook responses
+**Architecture: Plan-then-Execute**
 
-## Configuration
+1. A Groq LLM (LLaMA 3.3 70b) reads the instruction and generates a validated DAG of steps
+2. The executor runs each step sequentially using only the 5 permitted tools
+3. On failure: up to 2 retries with modified parameters (or exponential backoff for rate limits)
+4. On exhaustion: a structured escalation payload is generated for human review
+5. A JSON audit log captures every decision, parameter, retry, and outcome
 
-### Environment Variables
+---
 
-- `WEBHOOK_URL` (required): The webhook URL to forward messages to
-- `WEBHOOK_TIMEOUT` (optional): Timeout for webhook calls in seconds (default: 120)
+## Tools
 
-### Example Configuration
+| Tool | Purpose |
+|---|---|
+| `account_provisioner` | Provisions system access with RBAC |
+| `welcome_email_composer` | Sends personalised welcome email |
+| `calendar_scheduler` | Books orientation and kickoff meetings |
+| `document_generator` | Generates contracts and NDAs |
+| `onboarding_tracker` | Updates the central onboarding record |
+
+---
+
+## Running Locally
+
+### Prerequisites
+- Docker Desktop
+- Groq API key (free at https://console.groq.com)
+
+### Setup
 
 ```bash
-export WEBHOOK_URL="http://localhost:5678/webhook/53c136fe-3e77-4709-a143-fe82746dd8b6/chat"
-export WEBHOOK_TIMEOUT="120"
+# Clone the repo
+git clone https://github.com/nappenheimer/shipathon2.git
+cd shipathon2
+
+# Add your Groq API key
+echo "ALT_API_KEY=your_key_here" > .env
+
+# Build and run
+docker build -t shipathon2 .
+docker run --env-file .env -p 5000:5000 shipathon2
 ```
 
-## Usage
-
-### Running with Docker Compose
+### Verify it's running
 
 ```bash
-docker-compose up --build
+curl http://localhost:5000/.well-known/agent.json
 ```
 
-The agent will be available at `http://localhost:8085`
+### Visual Audit Dashboard
 
-### Running Locally
-
-```bash
-# Install dependencies
-pip install -e .
-
-# Set environment variables
-export WEBHOOK_URL="http://localhost:5678/webhook/53c136fe-3e77-4709-a143-fe82746dd8b6/chat"
-
-# Run the agent
-python src/__main__.py --host 0.0.0.0 --port 8085
+Open your browser at:
+```
+http://localhost:5000/ui
 ```
 
-## A2A Message Flow
+Type any onboarding request in the input box and hit Run. The dashboard shows the full execution trace with live status badges, retry details, timing, and escalation payloads.
 
-1. **Incoming A2A Request**:
-   ```json
-   {
-     "jsonrpc": "2.0",
-     "id": "a49d2ccf-6eb2-41ac-b601-e3d2dd179a35",
-     "method": "message/send",
-     "params": {
-       "message": {
-         "role": "user",
-         "parts": [{"kind": "text", "text": "How are you?"}],
-         "messageId": "msg-123"
-       }
-     }
-   }
-   ```
+---
 
-2. **Webhook Call**:
-   ```json
-   {
-     "sessionId": "a49d2ccf-6eb2-41ac-b601-e3d2dd179a35",
-     "chatInput": "How are you?"
-   }
-   ```
+## Test Scenarios
 
-3. **A2A Response**:
-   ```json
-   {
-     "id": "a49d2ccf-6eb2-41ac-b601-e3d2dd179a35",
-     "jsonrpc": "2.0", 
-     "result": {
-       "artifacts": [
-         {
-           "artifactId": "artifact-123",
-           "parts": [{"kind": "text", "text": "Webhook response here"}]
-         }
-       ],
-       "contextId": "context-456",
-       "history": [...],
-       "id": "task-789",
-       "kind": "task",
-       "status": {"state": "completed", "timestamp": "2024-11-20T..."}
-     }
-   }
-   ```
-
-## Testing
-
-### Test the Agent
+### Scenario 1 — Standard onboarding (happy path)
 
 ```bash
-curl -X POST 'http://localhost:8085/' \
-  -H 'Content-Type: application/json' \
+curl -X POST http://localhost:5000/ \
+  -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
-    "id": "test-123",
-    "method": "message/send", 
+    "id": "test-1",
+    "method": "message/send",
     "params": {
       "message": {
         "role": "user",
-        "parts": [{"kind": "text", "text": "Hello!"}],
-        "messageId": "msg-123"
+        "messageId": "msg-001",
+        "parts": [{"kind": "text", "text": "Onboard Sarah Connor to the Cybersecurity team starting next Monday as a Security Analyst."}]
       }
     }
   }'
 ```
 
-### Health Check
+**Expected:** All 5 tools execute successfully. Final status: `complete`.
+
+---
+
+### Scenario 2 — Ambiguous instruction (missing details)
 
 ```bash
-curl http://localhost:8085/health
+curl -X POST http://localhost:5000/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": "test-2",
+    "method": "message/send",
+    "params": {
+      "message": {
+        "role": "user",
+        "messageId": "msg-002",
+        "parts": [{"kind": "text", "text": "Onboard John Smith to Engineering tomorrow."}]
+      }
+    }
+  }'
 ```
 
-## Webhook Requirements
+**Expected:** Agent infers missing fields (role, salary band, systems) using department context. All 5 steps complete. Final status: `complete`.
 
-The target webhook should:
-- Accept POST requests with JSON payload
-- Expected payload format:
-  ```json
-  {
-    "sessionId": "string",
-    "chatInput": "string" 
-  }
-  ```
-- Return a response (JSON or text) that can be forwarded back to the A2A client
+---
 
-## Error Handling
+### Scenario 3 — Different department and role
 
-The agent handles various error scenarios:
-- Webhook timeouts
-- HTTP errors from webhook
-- Invalid webhook responses
-- Network connectivity issues
+```bash
+curl -X POST http://localhost:5000/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": "test-3",
+    "method": "message/send",
+    "params": {
+      "message": {
+        "role": "user",
+        "messageId": "msg-003",
+        "parts": [{"kind": "text", "text": "Complete full onboarding for Maria Garcia joining the Product team on 2026-05-15 as a Senior Product Manager."}]
+      }
+    }
+  }'
+```
 
-All errors are returned as proper A2A error responses.
+**Expected:** Agent generates a plan tailored to Product team context. All 5 steps complete. Final status: `complete`.
 
-## Integration with Nasiko
+---
 
-This agent can be registered with the Nasiko agent registry and used through the orchestrator for routing messages to webhook-based services.
+## Audit Log
+
+Every workflow produces a structured JSON execution log returned in the response artifact. It contains:
+
+- `workflow_metadata` — workflow ID, timestamps, final status, step counts, retry counts, escalation count
+- `planned_steps` — the full DAG generated before any execution began
+- `execution_trace` — one record per step with tool name, parameters used, result, errors, retry attempts, and escalation payload if triggered
+
+---
+
+## Project Structure
+
+```
+my-awesome-agent/
+├── 
+├── __init__.py
+├── __main__.py              # A2A server entry point
+├── webhook_agent.py         # Planner + Executor orchestrator
+├── webhook_agent_executor.py # A2A AgentExecutor implementation
+├── onboarding_tools.py      # 5 mock tools with Pydantic schemas
+├── audit_store.py           # In-memory audit log store
+└── ui_routes.py             # Visual dashboard routes
+├── Dockerfile
+├── docker-compose.yml
+├── AgentCard.json
+└── README.md
+```
+
+---
+
+## Evaluation Criteria Coverage
+
+| Criterion | How it's addressed |
+|---|---|
+| Decomposition quality | LLM generates a strict ordered DAG before any execution |
+| Tool adherence | Pydantic schema validation blocks any tool not in the permitted set |
+| Failure handling | Per-step try/catch with modified-parameter LLM retry on validation errors, backoff on transient errors |
+| Escalation appropriateness | After 2 failed retries, full context payload generated and workflow halts |
+| Execution log quality | Structured JSON with every step, attempt, error, corrected params, and final status |
+| End-to-end completion | 3 distinct scenarios tested and documented above |
