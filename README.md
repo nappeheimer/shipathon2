@@ -153,8 +153,7 @@ Every workflow produces a structured JSON execution log returned in the response
 ## Project Structure
 
 ```
-my-awesome-agent/
-├── 
+shipathon2/
 ├── __init__.py
 ├── __main__.py              # A2A server entry point
 ├── webhook_agent.py         # Planner + Executor orchestrator
